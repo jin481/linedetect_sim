@@ -38,12 +38,8 @@ int main() {
     TickMeter tm;  // OpenCV TickMeter 클래스 사용
     Mat labels, stats, centroids;
 
-    // 중간 라인 위치를 계산 (수평 방향)
-    int middle = 320;  // 640x360 영상에서 수평 중앙
-    int left_half = 320;  // 왼쪽 절반 영역 (x < 320)
-
-    // 진짜 라인의 마지막 위치 추적
-    Point lastRealLinePosition(-1, -1); // (x, y) 좌표로 초기화
+    // 초기 진짜 라인의 위치 없음
+    Point realLinePosition(-1, -1);  // (x, y) 좌표로 초기화
 
     while (true) {
         tm.start();  // 실행 시간 측정 시작
@@ -71,34 +67,64 @@ int main() {
 
             if (p[4] < 20) continue; // 너무 작은 영역은 무시
 
-            // 영역의 중심이 영상의 왼쪽 절반에 있으면 "진짜 라인"으로 간주
             Scalar lineColor;
-            if (a[0] < left_half) {
-                // 왼쪽 절반에 있는 라인은 진짜 라인 (빨간색으로 표시)
-                lineColor = Scalar(0, 0, 255);
-                lastRealLinePosition = Point(a[0], a[1]); // 마지막 위치 갱신
-                foundRealLine = true;
-            } else if (abs(a[0] - middle) < 50) {
-                // 중앙 근처의 라인도 진짜 라인 (빨간색으로 표시)
-                lineColor = Scalar(0, 0, 255);
-                lastRealLinePosition = Point(a[0], a[1]); // 마지막 위치 갱신
-                foundRealLine = true;
+
+            // 처음 진짜 라인을 찾을 때 (하단 중앙 320 ± 10)
+            if (realLinePosition.x == -1) {
+                if (abs(a[0] - 320) <= 10) { // 영상 중앙 근처
+                    realLinePosition = Point(a[0], a[1]); // 진짜 라인 위치 설정
+                    lineColor = Scalar(0, 0, 255); // 빨간색으로 표시
+                    foundRealLine = true;
+                    // 진짜 라인에는 중심점도 그리기 (작게 조정)
+                    circle(lab1, Point(a[0], a[1]), 3, lineColor, -1); // 빨간색 중심점
+                }
             } else {
-                // 나머지 라인 (파란색으로 표시)
-                lineColor = Scalar(255, 0, 0);
+                // 진짜 라인이 이미 설정되었으면 그 라인만 추적
+                if (abs(a[0] - realLinePosition.x) <= 50) { // 진짜 라인 근처
+                    lineColor = Scalar(0, 0, 255); // 빨간색으로 표시
+                    foundRealLine = true;
+                    // 진짜 라인에는 중심점도 그리기 (작게 조정)
+                    circle(lab1, Point(a[0], a[1]), 3, lineColor, -1); // 빨간색 중심점
+                    // 사각형도 그리기 (크기 작게 조정)
+                    rectangle(lab1, Rect(p[0] + 2, p[1] + 2, p[2] - 4, p[3] - 4), lineColor, 2); // 사각형 크기 조정
+                    // 진짜 라인의 위치 갱신
+                    realLinePosition = Point(a[0], a[1]);
+                }
             }
-
-            // 사각형과 중심점 그리기
-            rectangle(lab1, Rect(p[0], p[1], p[2], p[3]), lineColor, 2);
-            circle(lab1, Point(a[0], a[1]), 2, lineColor, 2);
         }
 
-        // 진짜 라인이 사라졌을 경우 마지막 위치에 표시
-        if (!foundRealLine && lastRealLinePosition.x != -1) {
+        // 진짜 라인이 사라졌을 경우 마지막 위치에 중심점만 표시
+        if (!foundRealLine && realLinePosition.x != -1) {
             Scalar lineColor = Scalar(0, 0, 255); // 빨간색
-            // 마지막 진짜 라인 위치에 원을 그려줌
-            circle(lab1, lastRealLinePosition, 2, lineColor, 2);
+            // 마지막 진짜 라인 위치에 중심점만 그려줌 (작게 조정)
+            circle(lab1, realLinePosition, 3, lineColor, -1); // 빨간색 중심점만
         }
+
+        // 진짜 라인이 아닌 다른 라인들은 파란색으로 표시
+        for (int i = 1; i < cnt; i++) {
+            int *p = stats.ptr<int>(i); // 영역의 위치 및 크기
+            double *a = centroids.ptr<double>(i); // 영역의 중심점
+
+            if (p[4] < 20 || abs(a[0] - realLinePosition.x) <= 50) continue; // 진짜 라인 근처는 제외
+
+            // 가짜 라인에는 파란색으로 표시
+            Scalar lineColor = Scalar(255, 0, 0); // 파란색으로 설정
+            // 가짜 라인에는 중심점과 사각형 그리기
+            circle(lab1, Point(a[0], a[1]), 3, lineColor, -1); // 파란색 중심점
+            rectangle(lab1, Rect(p[0] + 2, p[1] + 2, p[2] - 4, p[3] - 4), lineColor, 2); // 사각형 크기 조정
+        }
+
+        // 영상의 중앙 X 좌표 (로봇의 중심 x좌표)
+        int centerX = frame.cols / 2;
+
+        // 진짜 라인의 무게 중심 X 좌표
+        int realLineX = realLinePosition.x;
+
+        // 위치 오차 계산 (영상 중심 - 진짜 라인 중심)
+        int error = centerX - realLineX;
+
+        // 위치 오차 출력
+        cout << "Error: " << error << endl;
 
         writer1 << frame;  // 컬러 영상
         writer3 << lab1;     // 이진 영상
